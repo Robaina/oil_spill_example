@@ -1,0 +1,11 @@
+sample_id,id,abundance,file
+oilspill,Acinetobacter_sp,100,models/Acinetobacter.json
+oilspill,Alcanivorax_sp,100,models/Alcanivorax.json
+oilspill,Alteromonas_sp,100,models/Alteromonas.json
+oilspill,Flavobacterium_sp,100,models/Flavobacterium.json
+oilspill,Marinobacter_sp,100,models/Marinobacter.json
+oilspill,Oleibacter_sp,100,models/Oleibacter.json
+oilspill,Polaribacter_sp,100,models/Polaribacter.json
+oilspill,Pseudomonas_sp,100,models/Pseudomonas.json
+oilspill,Rhodococcus_sp,100,models/Rhodococcus.json
+oilspill,Thalassospira_sp,100,models/Thalassospira.json
