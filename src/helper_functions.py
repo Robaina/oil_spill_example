@@ -1,9 +1,10 @@
 from __future__ import annotations
-import networkx as nx
+from pathlib import Path
 import json
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+from pandas import DataFrame
 
 
 def generate_bipartite_graph(
@@ -11,6 +12,11 @@ def generate_bipartite_graph(
     hide_taxa: list[str] = None,
     hide_metabolites: list[str] = None,
     flux_cutoff: float = None,
+    target_taxon: str = None,
+    environmental_carbon_sources: list[str] = None,
+    output_graph: Path = None,
+    relabel_nodes: dict = None,
+    keep_metabolites: list[str] = None,  # New parameter
 ) -> nx.DiGraph:
     """
     Generates a bipartite graph from a file containing exchange data.
@@ -20,11 +26,16 @@ def generate_bipartite_graph(
         hide_taxa (list[str], optional): A list of taxa to hide from the graph. Defaults to None.
         hide_metabolites (list[str], optional): A list of metabolites to hide from the graph. Defaults to None.
         flux_cutoff (float, optional): The minimum flux value for an edge to be included in the graph. Defaults to None.
+        target_taxon (str, optional): The target taxon to focus on in the graph. Defaults to None.
+        environmental_carbon_sources (list[str], optional): A list of environmental carbon sources. Defaults to None.
+        keep_metabolites (list[str], optional): A list of metabolites to keep in the graph, even if they are not connected to the target taxon. Defaults to None.
 
     Returns:
         nx.DiGraph: The generated bipartite graph.
     """
     G = nx.DiGraph()
+    if relabel_nodes is not None:
+        G = nx.relabel_nodes(G, relabel_nodes)
 
     with open(exchanges_file_path, "r") as f:
         for line in f:
@@ -33,12 +44,22 @@ def generate_bipartite_graph(
             cols = line.strip().split("\t")
             taxon = cols[1].replace("_sp", "")
             metabolite = cols[7].replace("_e", "")
+            if relabel_nodes is not None and metabolite in relabel_nodes:
+                metabolite = relabel_nodes[metabolite]
             direction = cols[8]
             flux = abs(float(cols[5]))
             if hide_taxa is None or taxon not in hide_taxa:
                 G.add_node(taxon, bipartite=0)
             if hide_metabolites is None or metabolite not in hide_metabolites:
-                G.add_node(metabolite, bipartite=1)
+                if (
+                    environmental_carbon_sources is None
+                    or metabolite in environmental_carbon_sources
+                ):
+                    G.add_node(metabolite, bipartite=1)
+                elif target_taxon is not None and (
+                    taxon == target_taxon or metabolite == target_taxon
+                ):
+                    G.add_node(metabolite, bipartite=1)
             if flux_cutoff is None or flux >= flux_cutoff:
                 if direction == "export":
                     G.add_edge(taxon, metabolite)
@@ -50,20 +71,84 @@ def generate_bipartite_graph(
     if hide_metabolites is not None:
         G.remove_nodes_from(hide_metabolites)
 
+    for source in environmental_carbon_sources:
+        if source not in G.nodes:
+            G.add_node(source, bipartite=1)
+
+    for node in list(G.nodes):
+        if (
+            "bipartite" in G.nodes[node]
+            and (node not in environmental_carbon_sources)
+            and G.nodes[node]["bipartite"] == 1
+        ):
+            if not G.has_edge(node, target_taxon) and (
+                keep_metabolites is None or node not in keep_metabolites
+            ):
+                G.remove_node(node)
+
     G.remove_nodes_from(list(nx.isolates(G)))
 
     bipartite_graph = G
     data = nx.readwrite.json_graph.node_link_data(G)
 
-    with open("results/micom/graph.json", "w") as f:
-        json.dump(data, f)
+    if output_graph is not None:
+        with open(output_graph, "w") as f:
+            json.dump(data, f)
 
     return bipartite_graph
 
 
-def plot_interaction_graph(
-    final_df: pd.DataFrame,
+def plot_ecological_interactions(
+    ko: DataFrame,
+    figsize: tuple = (15, 15),
+    node_size: int = 10000,
+    node_color: str = "grey",
+    arrowsize: int = 20,
+) -> None:
+    """
+    Function to plot an interaction graph based on a knockout analysis dataframe.
+
+    Parameters:
+    ko (DataFrame): A pandas DataFrame from a knockout analysis.
+    figsize (tuple): A tuple specifying the size of the figure. Default is (15, 15).
+    node_size (int): The size of the nodes in the graph. Default is 10000.
+    node_color (str): The color of the nodes in the graph. Default is 'grey'.
+    arrowsize (int): The size of the arrow heads. Default is 20.
+
+    Returns:
+    None
+    """
+    G = nx.DiGraph()
+    for taxon in ko.columns:
+        G.add_node(taxon)
+    for taxon1 in ko.columns:
+        for taxon2 in ko.columns:
+            if taxon1 != taxon2:
+                growth_change = ko.loc[taxon1, taxon2]
+                if growth_change > 0:
+                    G.add_edge(taxon1, taxon2, color="red")
+                elif growth_change < 0:
+                    G.add_edge(taxon1, taxon2, color="blue")
+    colors = nx.get_edge_attributes(G, "color").values()
+    pos = nx.circular_layout(G)
+    plt.figure(figsize=figsize)
+    node_labels = {node: node.replace("_sp", "") for node in G.nodes()}
+    nx.draw(
+        G,
+        pos,
+        labels=node_labels,
+        font_color="white",
+        node_size=node_size,
+        node_color=node_color,
+        edge_color=colors,
+        arrowsize=arrowsize,
+    )
+    plt.show()
+
+
+def plot_trophic_interactions(
     bipartite_graph: nx.Graph,
+    environmental_carbon_sources: list[str],
     target_taxon: str = "Acinetobacter",
     target_compound: str = "tol",
     color_carbon_sources: str = "violet",
@@ -96,10 +181,7 @@ def plot_interaction_graph(
     - arrow_size_other: The size for other arrows in the graph.
     - hidden_metabolites: A list of metabolites to be hidden in the graph.
     """
-    medium_donors = [
-        m.replace("_m", "")
-        for m in final_df[final_df["donor"] == "medium"]["compound"].unique()
-    ]
+    medium_donors = environmental_carbon_sources
     direct_nodes = list(bipartite_graph.neighbors(target_compound)) + [target_compound]
     indirect_nodes = [
         neighbor
