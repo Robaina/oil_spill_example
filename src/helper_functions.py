@@ -1,10 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
 import json
-import pandas as pd
+import random
 import networkx as nx
 import matplotlib.pyplot as plt
-from pandas import DataFrame
 
 
 def generate_bipartite_graph(
@@ -99,10 +98,14 @@ def generate_bipartite_graph(
 
 
 def plot_ecological_interactions(
-    ko: DataFrame,
-    figsize: tuple = (15, 15),
+    ko,
+    figsize: tuple = (10, 10),
+    selected_taxa: list[str] = None,
     node_size: int = 10000,
-    node_color: str = "grey",
+    node_color: str = "silver",
+    edge_width: int = 3,
+    cooperative_color: str = "lightblue",
+    competitive_color: str = "lightcoral",
     arrowsize: int = 20,
 ) -> None:
     """
@@ -110,14 +113,22 @@ def plot_ecological_interactions(
 
     Parameters:
     ko (DataFrame): A pandas DataFrame from a knockout analysis.
-    figsize (tuple): A tuple specifying the size of the figure. Default is (15, 15).
+    selected_taxa (List[str]): A list of taxa to be included in the plot. If None, all taxa are included. Default is None.
+    figsize (tuple): A tuple specifying the size of the figure. Default is (10, 10).
     node_size (int): The size of the nodes in the graph. Default is 10000.
     node_color (str): The color of the nodes in the graph. Default is 'grey'.
+    edge_width (int): The width of the edges in the graph. Default is 3.
+    cooperative_color (str): The color of the cooperative edges in the graph. Default is 'blue'.
+    competitive_color (str): The color of the competitive edges in the graph. Default is 'red'.
     arrowsize (int): The size of the arrow heads. Default is 20.
 
     Returns:
     None
     """
+    if selected_taxa is not None:
+        ko = ko.loc[selected_taxa, selected_taxa]
+    fig, ax = plt.subplots(figsize=figsize)
+
     G = nx.DiGraph()
     for taxon in ko.columns:
         G.add_node(taxon)
@@ -126,61 +137,61 @@ def plot_ecological_interactions(
             if taxon1 != taxon2:
                 growth_change = ko.loc[taxon1, taxon2]
                 if growth_change > 0:
-                    G.add_edge(taxon1, taxon2, color="red")
+                    G.add_edge(taxon1, taxon2, color=competitive_color)
                 elif growth_change < 0:
-                    G.add_edge(taxon1, taxon2, color="blue")
-    colors = nx.get_edge_attributes(G, "color").values()
+                    G.add_edge(taxon1, taxon2, color=cooperative_color)
+
     pos = nx.circular_layout(G)
-    plt.figure(figsize=figsize)
-    node_labels = {node: node.replace("_sp", "") for node in G.nodes()}
+    node_labels = {node: node for node in G.nodes()}
     nx.draw(
         G,
         pos,
         labels=node_labels,
-        font_color="white",
+        font_color="black",
         node_size=node_size,
         node_color=node_color,
-        edge_color=colors,
+        edge_color=nx.get_edge_attributes(G, "color").values(),
+        width=edge_width,
         arrowsize=arrowsize,
+        connectionstyle="arc3, rad = 0.1",
     )
+    ax.set_facecolor("black")
+    ax.axis("off")
+    fig.set_facecolor("black")
     plt.show()
 
 
 def plot_trophic_interactions(
-    bipartite_graph: nx.Graph,
-    environmental_carbon_sources: list[str],
-    target_taxon: str = "Acinetobacter",
-    target_compound: str = "tol",
-    color_carbon_sources: str = "violet",
-    color_acinetobacter: str = "skyblue",
-    color_other_edges: str = "lightgrey",
-    color_other_nodes: str = "silver",
-    large_node_size: int = 6000,
-    small_node_size: int = 1000,
-    edge_width_acinetobacter: float = 3.5,
-    edge_width_other: float = 0.8,
-    arrow_size_acinetobacter: int = 10,
-    arrow_size_other: int = 5,
-) -> None:
-    """
-    This function plots an interaction graph based on the provided bipartite graph and dataframe.
+    bipartite_graph,
+    environmental_carbon_sources,
+    highlight_compounds=None,
+    target_taxon="Acinetobacter",
+    target_compound="tol",
+    color_oil_nodes="violet",
+    color_other_edges="lightgrey",
+    color_other_nodes="silver",
+    large_node_size=6000,
+    small_node_size=1000,
+    edge_width_target_taxon=3.5,
+    edge_width_other=0.8,
+    arrow_size_target_taxon=10,
+    arrow_size_other=5,
+    figsize=(15, 15),
+    seed: int = None,
+):
+    if highlight_compounds is None:
+        highlight_compounds = []
 
-    Parameters:
-    - final_df: A pandas DataFrame containing the final data.
-    - bipartite_graph: A NetworkX bipartite graph.
-    - target_taxon: The target taxon for the graph.
-    - color_carbon_sources: The color for carbon sources in the graph.
-    - color_acinetobacter: The color for Acinetobacter in the graph.
-    - color_other_edges: The color for other edges in the graph.
-    - color_other_nodes: The color for other nodes in the graph.
-    - large_node_size: The size for large nodes in the graph.
-    - small_node_size: The size for small nodes in the graph.
-    - edge_width_acinetobacter: The width for Acinetobacter edges in the graph.
-    - edge_width_other: The width for other edges in the graph.
-    - arrow_size_acinetobacter: The size for Acinetobacter arrows in the graph.
-    - arrow_size_other: The size for other arrows in the graph.
-    - hidden_metabolites: A list of metabolites to be hidden in the graph.
-    """
+    if seed is None:
+        seed = random.randint(0, 100)
+
+    taxon_nodes_connected_to_highlight = [
+        n
+        for compound in highlight_compounds
+        for n in bipartite_graph.neighbors(compound)
+        if bipartite_graph.nodes[n]["bipartite"] == 0
+    ]
+
     medium_donors = environmental_carbon_sources
     direct_nodes = list(bipartite_graph.neighbors(target_compound)) + [target_compound]
     indirect_nodes = [
@@ -193,17 +204,14 @@ def plot_trophic_interactions(
         for node in indirect_nodes
         for neighbor in bipartite_graph.neighbors(node)
     ]
-    acinetobacter_compounds = [
+    target_taxon_compounds = [
         n
         for n in bipartite_graph.to_undirected().neighbors(target_taxon)
         if bipartite_graph.nodes[n]["bipartite"] == 1
     ]
-    acinetobacter_consumed_compounds = [
-        u for u, v in bipartite_graph.edges() if v == target_taxon
-    ]
-    species_connected_to_acinetobacter_compounds = [
+    species_connected_to_target_taxon_compounds = [
         n
-        for compound in acinetobacter_compounds
+        for compound in target_taxon_compounds
         for n in bipartite_graph.neighbors(compound)
         if bipartite_graph.nodes[n]["bipartite"] == 0
     ]
@@ -211,8 +219,8 @@ def plot_trophic_interactions(
         direct_nodes
         + indirect_nodes
         + indirect_nodes_extended
-        + acinetobacter_compounds
-        + species_connected_to_acinetobacter_compounds
+        + target_taxon_compounds
+        + species_connected_to_target_taxon_compounds
     )
     subgraph = bipartite_graph.subgraph(subgraph_nodes)
     medium_donor_edges = [
@@ -237,67 +245,82 @@ def plot_trophic_interactions(
                 n for n, d in extended_subgraph.nodes(data=True) if d["bipartite"] == 1
             ),
         ],
+        rotate=seed,
     )
 
-    plt.figure(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=figsize)
 
-    edge_colors, edge_widths, arrow_sizes = [], [], []
-    for u, v in extended_subgraph.edges():
-        if v == target_taxon:
-            if u in medium_donors:
-                edge_colors.append(color_carbon_sources)
-                edge_widths.append(edge_width_acinetobacter)
-                arrow_sizes.append(arrow_size_acinetobacter)
-            else:
-                edge_colors.append(color_acinetobacter)
-                edge_widths.append(edge_width_acinetobacter)
-                arrow_sizes.append(arrow_size_acinetobacter)
-        elif u in medium_donors:
-            edge_colors.append(color_carbon_sources)
-            edge_widths.append(edge_width_other)
-            arrow_sizes.append(arrow_size_other)
-        else:
-            edge_colors.append(color_other_edges)
-            edge_widths.append(edge_width_other)
-            arrow_sizes.append(arrow_size_other)
+    non_highlight_edges = [
+        (u, v)
+        for u, v in extended_subgraph.edges()
+        if u not in highlight_compounds and v not in highlight_compounds
+    ]
+    non_highlight_subgraph = extended_subgraph.edge_subgraph(non_highlight_edges)
+
+    highlight_edges = [
+        (u, v)
+        for u, v in extended_subgraph.edges()
+        if u in highlight_compounds or v in highlight_compounds
+    ]
+    highlight_subgraph = extended_subgraph.edge_subgraph(highlight_edges)
 
     nx.draw(
-        extended_subgraph,
+        non_highlight_subgraph,
         shell_layout_extended_subgraph,
         with_labels=True,
         node_size=[
             large_node_size if bipartite == 0 else small_node_size
             for bipartite in nx.get_node_attributes(
-                extended_subgraph, "bipartite"
+                non_highlight_subgraph, "bipartite"
             ).values()
         ],
         node_color=[
-            color_acinetobacter
-            if (
-                node == target_taxon
-                or (
-                    node in acinetobacter_consumed_compounds
-                    and node not in medium_donors
-                )
-            )
-            else (
-                color_other_nodes
-                if bipartite == 0
-                else color_carbon_sources
-                if node in medium_donors
-                else color_other_nodes
-            )
+            color_oil_nodes
+            if node in highlight_compounds
+            or node == target_taxon
+            or node in taxon_nodes_connected_to_highlight
+            else color_other_nodes
             for node, bipartite in nx.get_node_attributes(
-                extended_subgraph, "bipartite"
+                non_highlight_subgraph, "bipartite"
             ).items()
         ],
-        edge_color=edge_colors,
-        arrowsize=arrow_sizes,
-        width=edge_widths,
+        edge_color=color_other_edges,
+        arrowsize=arrow_size_other,
+        width=edge_width_other,
     )
+
+    nx.draw(
+        highlight_subgraph,
+        shell_layout_extended_subgraph,
+        with_labels=True,
+        node_size=[
+            large_node_size if bipartite == 0 else small_node_size
+            for bipartite in nx.get_node_attributes(
+                highlight_subgraph, "bipartite"
+            ).values()
+        ],
+        node_color=[
+            color_oil_nodes
+            if node in highlight_compounds
+            or node == target_taxon
+            or node in taxon_nodes_connected_to_highlight
+            else color_other_nodes
+            for node, bipartite in nx.get_node_attributes(
+                highlight_subgraph, "bipartite"
+            ).items()
+        ],
+        edge_color=color_oil_nodes,
+        arrowsize=arrow_size_target_taxon,
+        width=edge_width_target_taxon,
+    )
+
     nx.draw_networkx_edge_labels(
         extended_subgraph,
         shell_layout_extended_subgraph,
         edge_labels=nx.get_edge_attributes(extended_subgraph, "weight"),
     )
+
+    ax.set_facecolor("black")
+    ax.axis("off")
+    fig.set_facecolor("black")
     plt.show()
