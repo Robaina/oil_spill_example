@@ -164,6 +164,7 @@ def plot_ecological_interactions(
 def plot_trophic_interactions(
     bipartite_graph,
     environmental_carbon_sources,
+    ax,
     highlight_compounds=None,
     target_taxon="Acinetobacter",
     target_compound="tol",
@@ -176,7 +177,7 @@ def plot_trophic_interactions(
     edge_width_other=0.8,
     arrow_size_target_taxon=10,
     arrow_size_other=5,
-    figsize=(15, 15),
+    font_size=8,
     seed: int = None,
 ):
     if highlight_compounds is None:
@@ -248,8 +249,6 @@ def plot_trophic_interactions(
         rotate=seed,
     )
 
-    fig, ax = plt.subplots(figsize=figsize)
-
     non_highlight_edges = [
         (u, v)
         for u, v in extended_subgraph.edges()
@@ -267,7 +266,7 @@ def plot_trophic_interactions(
     nx.draw(
         non_highlight_subgraph,
         shell_layout_extended_subgraph,
-        with_labels=True,
+        with_labels=False,
         node_size=[
             large_node_size if bipartite == 0 else small_node_size
             for bipartite in nx.get_node_attributes(
@@ -287,14 +286,15 @@ def plot_trophic_interactions(
         edge_color=color_other_edges,
         arrowsize=arrow_size_other,
         width=edge_width_other,
+        ax=ax,
     )
 
     nx.draw(
         highlight_subgraph,
         shell_layout_extended_subgraph,
-        with_labels=True,
+        with_labels=False,
         node_size=[
-            large_node_size if bipartite == 0 else small_node_size
+            large_node_size if bipartite == 0 else 2 * small_node_size
             for bipartite in nx.get_node_attributes(
                 highlight_subgraph, "bipartite"
             ).values()
@@ -312,15 +312,32 @@ def plot_trophic_interactions(
         edge_color=color_oil_nodes,
         arrowsize=arrow_size_target_taxon,
         width=edge_width_target_taxon,
+        ax=ax,
     )
-
-    nx.draw_networkx_edge_labels(
+    # nx.draw_networkx_edge_labels(
+    #     extended_subgraph,
+    #     shell_layout_extended_subgraph,
+    #     edge_labels=nx.get_edge_attributes(extended_subgraph, "weight"),
+    #     ax=ax,
+    # )
+    highlight_nodes = list(highlight_subgraph.nodes)
+    non_highlight_nodes = [
+        node for node in extended_subgraph.nodes if node not in highlight_nodes
+    ]
+    nx.draw_networkx_labels(
         extended_subgraph,
         shell_layout_extended_subgraph,
-        edge_labels=nx.get_edge_attributes(extended_subgraph, "weight"),
+        labels={n: n for n in non_highlight_nodes},
+        font_size=font_size,
+        ax=ax,
+    )
+    nx.draw_networkx_labels(
+        extended_subgraph,
+        shell_layout_extended_subgraph,
+        labels={n: n for n in highlight_nodes},
+        font_size=1.5 * font_size,
+        ax=ax,
     )
 
     ax.set_facecolor("black")
     ax.axis("off")
-    fig.set_facecolor("black")
-    plt.show()
