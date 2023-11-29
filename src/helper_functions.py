@@ -4,6 +4,67 @@ import json
 import random
 import networkx as nx
 import matplotlib.pyplot as plt
+import pandas as pd
+
+
+def get_donor_receiver_from_exchanges(exchanges: pd.DataFrame) -> pd.DataFrame:
+    """Get donor, receiver and compounds from exchanges dataframe
+    Args:
+        exchanges (pd.DataFrame): dataframe with exchanges as retuned by micom
+    Returns:
+        pd.DataFrame: dataframe with donor, receiver and compounds
+    """
+    export_df = exchanges[exchanges["direction"] == "export"]
+    import_df = exchanges[exchanges["direction"] == "import"]
+    merged_df = pd.merge(import_df, export_df, on="metabolite", how="outer")
+    final_df = merged_df[["sample_id_x", "taxon_x", "taxon_y", "metabolite"]].copy()
+    final_df.columns = ["sample_id", "donor", "receiver", "compound"]
+    final_df.loc[final_df["donor"].isnull(), "donor"] = None
+    return final_df
+
+
+def get_shared_metabolites_for_taxon(
+    exchanges: pd.DataFrame, target_taxon: str
+) -> pd.DataFrame:
+    """Get dataframe of metabolites shared between target taxon and other taxa.
+
+    Args:
+        exchanges (pd.DataFrame): exchanges datafrrame as returned by micom.workflows.grow
+        target_taxon (str): target taxon that is importing metabolites
+
+    Returns:
+        pd.DataFrame: dataframe of metabolites shared between target taxon and other taxa
+    """
+    target_imports = exchanges[
+        (exchanges["taxon"] == target_taxon) & (exchanges["direction"] == "import")
+    ]
+    producers = exchanges[
+        (exchanges["metabolite"].isin(target_imports["metabolite"]))
+        & (exchanges["direction"] == "export")
+    ]
+    merged_df = pd.merge(
+        target_imports, producers, on="metabolite", suffixes=("_import", "_export")
+    )
+    return merged_df[
+        ["metabolite", "taxon_import", "flux_import", "taxon_export", "flux_export"]
+    ].sort_values("flux_import", ascending=True)
+
+
+def get_used_medium_sources(donor_receiver: pd.DataFrame) -> list[str]:
+    """Get used medium sources from donor receiver dataframe
+
+    Args:
+        donor_receiver (pd.DataFrame): _description_
+
+    Returns:
+        list[str]: _description_
+    """
+    return [
+        m.replace("_m", "")
+        for m in donor_receiver[donor_receiver["donor"] == "medium"][
+            "compound"
+        ].unique()
+    ]
 
 
 def generate_bipartite_graph(
