@@ -283,6 +283,7 @@ def plot_trophic_interactions(
         + indirect_nodes_extended
         + target_taxon_compounds
         + species_connected_to_target_taxon_compounds
+        + highlight_compounds
     )
     subgraph = bipartite_graph.subgraph(subgraph_nodes)
     medium_donor_edges = [
