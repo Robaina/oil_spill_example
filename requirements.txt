@@ -1,4 +1,5 @@
 networkx
 matplotlib
 pandas
-micom
+cobra==0.26
+micom==0.33
