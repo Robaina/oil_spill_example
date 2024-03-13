@@ -2,9 +2,14 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import random
+import copy
+import pickle
+from functools import partial
+import multiprocessing as mp
 import networkx as nx
 import matplotlib.pyplot as plt
 import pandas as pd
+from micom import load_pickle
 
 
 def get_donor_receiver_from_exchanges(exchanges: pd.DataFrame) -> pd.DataFrame:
@@ -336,11 +341,13 @@ def plot_trophic_interactions(
             ).values()
         ],
         node_color=[
-            color_oil_nodes
-            if node in highlight_compounds
-            or node == target_taxon
-            or node in taxon_nodes_connected_to_highlight
-            else color_other_nodes
+            (
+                color_oil_nodes
+                if node in highlight_compounds
+                or node == target_taxon
+                or node in taxon_nodes_connected_to_highlight
+                else color_other_nodes
+            )
             for node, bipartite in nx.get_node_attributes(
                 non_highlight_subgraph, "bipartite"
             ).items()
@@ -362,11 +369,13 @@ def plot_trophic_interactions(
             ).values()
         ],
         node_color=[
-            color_oil_nodes
-            if node in highlight_compounds
-            or node == target_taxon
-            or node in taxon_nodes_connected_to_highlight
-            else color_other_nodes
+            (
+                color_oil_nodes
+                if node in highlight_compounds
+                or node == target_taxon
+                or node in taxon_nodes_connected_to_highlight
+                else color_other_nodes
+            )
             for node, bipartite in nx.get_node_attributes(
                 highlight_subgraph, "bipartite"
             ).items()
@@ -376,12 +385,7 @@ def plot_trophic_interactions(
         width=edge_width_target_taxon,
         ax=ax,
     )
-    # nx.draw_networkx_edge_labels(
-    #     extended_subgraph,
-    #     shell_layout_extended_subgraph,
-    #     edge_labels=nx.get_edge_attributes(extended_subgraph, "weight"),
-    #     ax=ax,
-    # )
+
     highlight_nodes = list(highlight_subgraph.nodes)
     non_highlight_nodes = [
         node for node in extended_subgraph.nodes if node not in highlight_nodes
@@ -403,3 +407,80 @@ def plot_trophic_interactions(
 
     ax.set_facecolor("black")
     ax.axis("off")
+
+
+def process_effector(
+    effector, effector_percentage_increase, cgem, target_uptake_reaction
+):
+    model = copy.deepcopy(cgem)
+    old_effector_bound = model.reactions.get_by_id(effector).lower_bound
+    increased_bound = old_effector_bound * (1 + effector_percentage_increase / 100)
+    model.reactions.get_by_id(effector).lower_bound = increased_bound
+    try:
+        sol = model.cooperative_tradeoff(fraction=0.5, fluxes=True)
+        target_flux = sol[target_uptake_reaction].medium
+    except:
+        target_flux = None
+    print(
+        f"Target uptake rate with {effector} increased by {effector_percentage_increase}%: {target_flux:.2f} mmol/gDW/h"
+    )
+    return effector, target_flux
+
+
+def compute_uptake_percent_change(
+    cgem_pickle_path: str,
+    medium_tsv_path: str,
+    target_uptake_reaction: str,
+    num_processes: int = 14,
+    effector_percentage_increase: float = 10,
+    output_pickle_path: str = None,
+):
+    """
+    Run the analysis to calculate uptake rates for a target compound for different effectors.
+
+    Args:
+        cgem_pickle_path (str): Path to the pickle file containing the COBRApy model.
+        medium_tsv_path (str): Path to the TSV file containing the medium composition.
+        target_uptake_reaction (str): The ID of the target uptake reaction.
+        num_processes (int, optional): Number of processes to use for parallel processing. Default is 14.
+        effector_percentage_increase (int, optional): Percentage increase in effector lower bound. Default is 10.
+        output_pickle_path (str, optional): Path to save the output dictionary as a pickle file. Default is None.
+
+    Returns:
+        dict: A dictionary containing target uptake rates for different effectors.
+    """
+    cgem = load_pickle(cgem_pickle_path)
+    medium = pd.read_csv(medium_tsv_path, sep="\t", header=None)
+    medium.columns = ["reaction", "flux"]
+    medium.set_index("reaction", inplace=False)
+    medium = medium[medium.reaction.isin([r.id for r in cgem.exchanges])]
+    cgem.medium = medium.set_index("reaction").squeeze()
+
+    sol_coop = cgem.cooperative_tradeoff(fraction=0.5, fluxes=True)
+    baseline_uptake_rate = sol_coop.fluxes.loc["medium", target_uptake_reaction]
+    print(
+        f"Baseline {target_uptake_reaction} uptake rate: {baseline_uptake_rate:.2f} mmol/gDW/h"
+    )
+
+    effectors = [ex for ex in medium.reaction if not target_uptake_reaction in ex]
+    uptake_by_effector = {"baseline": baseline_uptake_rate}
+
+    pool = mp.Pool(processes=num_processes)
+    func = partial(
+        process_effector,
+        effector_percentage_increase=effector_percentage_increase,
+        cgem=cgem,
+        target_uptake_reaction=target_uptake_reaction,
+    )
+    results = pool.map(func, effectors)
+    pool.close()
+    pool.join()
+
+    for effector, target_flux in results:
+        uptake_by_effector[effector] = target_flux
+
+    if output_pickle_path:
+        with open(output_pickle_path, "wb") as file:
+            pickle.dump(uptake_by_effector, file)
+
+    return uptake_by_effector

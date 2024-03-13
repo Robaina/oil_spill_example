@@ -2,3 +2,6 @@
 src/__pycache__
 notebooks/*
 paper/*
+results/micom_gurobi/*
+NOTES.md
+scripts/*
