@@ -25,9 +25,6 @@ jupyter notebook
 
 3) Open the notebook `oil_spill.ipynb` and run the cells.
 
-## Running in Google Colab
-
-
 ## License
 
 This work is license under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
