@@ -5,3 +5,4 @@ paper/*
 results/micom_gurobi/*
 NOTES.md
 scripts/*
+dev.ipynb
