@@ -6,3 +6,4 @@ results/micom_gurobi/*
 NOTES.md
 scripts/*
 dev.ipynb
+cytoscape_net/*
